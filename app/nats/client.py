@@ -1,52 +1,74 @@
 import asyncio
 import json
 import logging
-from datetime import datetime  
 from nats.aio.client import Client as NATS
-from app.config import settings
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
 class NatsClient:
     def __init__(self):
-        self.nc = None
-        self.connected = False
-    
-    async def connect(self):
-        try:
-            self.nc = NATS()
-            await self.nc.connect(servers=settings.nats_url)
-            self.connected = True
-            logger.info(f"Connected to NATS at {settings.nats_url}")
-        except Exception as e:
-            logger.error(f"NATS connection failed: {e}")
-            self.connected = False
-    
-    async def publish(self, subject: str, data: dict):
-        if not self.connected or not self.nc:
-            logger.warning("NATS not connected, skipping publish")
-            return
+        self.nc = NATS()
+        self.is_connected = False
+        self.subscriptions = []
         
+    async def connect(self, servers: str = "nats://localhost:4222"):
         try:
-            message = json.dumps(data)
-            await self.nc.publish(subject, message.encode())
-            logger.debug(f"Published to {subject}: {data}")
+            await self.nc.connect(servers=servers)
+            self.is_connected = True
+            logger.info(f"NATS подключен: {servers}")
+            await self.subscribe_to_channels()
         except Exception as e:
-            logger.error(f"Publish error: {e}")
-    
-    async def subscribe(self, subject: str, callback):
-        if not self.connected or not self.nc:
-            return
-        
+            logger.error(f"NATS ошибка подключения: {e}")
+            self.is_connected = False
+            
+    async def subscribe_to_channels(self):
         try:
-            await self.nc.subscribe(subject, cb=callback)
-            logger.info(f"Subscribed to {subject}")
+            sub = await self.nc.subscribe(
+                "currency.external.updates",
+                cb=self.handle_external_message
+            )
+            self.subscriptions.append(sub)
+            
+            sub = await self.nc.subscribe(
+                "currency.commands", 
+                cb=self.handle_command_message
+            )
+            self.subscriptions.append(sub)
+            
         except Exception as e:
-            logger.error(f"Subscribe error: {e}")
-    
-    async def close(self):
-        if self.nc and self.connected:
+            logger.error(f"NATS ошибка подписки: {e}")
+            
+    async def handle_external_message(self, msg):
+        try:
+            data = json.loads(msg.data.decode())
+            logger.info(f"NATS сообщение: {data}")
+        except Exception as e:
+            logger.error(f"NATS ошибка обработки: {e}")
+            
+    async def handle_command_message(self, msg):
+        try:
+            data = json.loads(msg.data.decode())
+            logger.info(f"NATS команда: {data}")
+        except Exception as e:
+            logger.error(f"NATS ошибка команды: {e}")
+            
+    async def publish(self, subject: str, payload: Dict[str, Any]):
+        try:
+            if not self.is_connected:
+                return
+            message = json.dumps(payload).encode()
+            await self.nc.publish(subject, message)
+        except Exception as e:
+            logger.error(f"NATS ошибка публикации: {e}")
+            
+    async def disconnect(self):
+        try:
+            for sub in self.subscriptions:
+                await sub.unsubscribe()
             await self.nc.close()
-            self.connected = False
+            self.is_connected = False
+        except Exception as e:
+            logger.error(f"NATS ошибка отключения: {e}")
 
 nats_client = NatsClient()

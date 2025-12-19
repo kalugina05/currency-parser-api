@@ -1,88 +1,62 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from datetime import datetime
 import logging
-from sqlalchemy import text, select 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.services.parser import CurrencyParser
 from app.db.database import AsyncSessionLocal
-from app.db.models import Currency, CurrencyRate
 from app.websocket.manager import manager
 from app.nats.client import nats_client
-from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-class BackgroundTasks:
-    def __init__(self):
-        self.scheduler = AsyncIOScheduler()
-        self.parser = CurrencyParser()
-        self.is_running = False
-    
-    async def update_currency_rates(self):
-        logger.info("Запуск обновления курсов валют...")
-        
-        # Получаем данные
-        rates = await self.parser.fetch_rates()
-        
-        async with AsyncSessionLocal() as session:
-            for rate_data in rates:
-                result = await session.execute(
-                    select(Currency).where(Currency.code == rate_data['code'])
-                )
-                currency = result.scalar_one_or_none()
-                
-                if not currency:
-                    # Создаем новую валюту
-                    currency = Currency(
-                        code=rate_data["code"],
-                        name=rate_data["name"]
-                    )
-                    session.add(currency)
-                    await session.commit()
-                    await session.refresh(currency)
-                
-                # Добавляем курс
-                rate = CurrencyRate(
-                    currency_id=currency.id,
-                    value=rate_data["value"],
-                    date=datetime.now()
-                )
-                session.add(rate)
-            
-            await session.commit()
-        
-        # Отправляем в WebSocket
-        await manager.broadcast({
-            "type": "rates_updated",
-            "data": rates,
-            "timestamp": datetime.now().isoformat()
-        })
-        
-        # Публикуем в NATS
-        if hasattr(nats_client, 'connected') and nats_client.connected:
-            await nats_client.publish(settings.nats_subject, {
-                "event": "rates_updated",
-                "data": rates
-            })
-        
-        logger.info(f"Обновлено {len(rates)} валют")
-    
-    def start(self):
-        if self.is_running:
-            return
-        
-        self.scheduler.add_job(
-            self.update_currency_rates,
-            'interval',
-            seconds=settings.update_interval,
-            id='currency_update'
-        )
-        self.scheduler.start()
-        self.is_running = True
-        logger.info(f"Фоновая задача запущена (интервал: {settings.update_interval}с)")
-    
-    async def manual_run(self):
-        await self.update_currency_rates()
+scheduler = AsyncIOScheduler()
 
-background_tasks = BackgroundTasks()
+async def parse_and_save_rates():
+    try:
+        logger.info("Запуск автоматического парсинга...")
+        
+        async with AsyncSessionLocal() as db:
+            parser = CurrencyParser(db)
+            rates = await parser.fetch_rates()
+            saved_count = await parser.save_rates(rates)
+            
+            await manager.broadcast({
+                "type": "rates_updated",
+                "data": {
+                    "rates_count": saved_count,
+                    "timestamp": datetime.now().isoformat()
+                }
+            })
+            
+            if nats_client and nats_client.is_connected:
+                await nats_client.publish(
+                    subject="currency.updates",
+                    payload={
+                        "event": "auto_parse_completed",
+                        "rates_count": saved_count,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+            
+            logger.info(f"Автопарсинг завершен. Курсов: {saved_count}")
+            return saved_count
+            
+    except Exception as e:
+        logger.error(f"Ошибка фоновой задачи: {e}")
+        return 0
+
+def start_background_scheduler():
+    scheduler.remove_all_jobs()
+    
+    scheduler.add_job(
+        parse_and_save_rates,
+        'interval',
+        minutes=10,
+        id='auto_currency_parser',
+        replace_existing=True
+    )
+    
+    if not scheduler.running:
+        scheduler.start()
+        logger.info("Планировщик фоновых задач запущен")
+    
+    return scheduler

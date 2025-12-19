@@ -23,7 +23,10 @@ class CurrencyRateBase(BaseModel):
 
 class CurrencyRate(CurrencyRateBase):
     id: int
-    currency: Currency
+    currency_id: int  
     date: datetime
     class Config:
         from_attributes = True
+
+class CurrencyWithRates(Currency):
+    rates: List[CurrencyRate] = []

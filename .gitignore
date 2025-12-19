@@ -7,10 +7,11 @@ __pycache__/
 venv/
 env/
 .venv/
-.env
+ENV/
 
-# Database
+# Базы данных
 *.db
+*.sqlite
 *.sqlite3
 
 # IDE
@@ -19,24 +20,29 @@ env/
 *.swp
 *.swo
 
-# OS
+# Логи
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+.env.prod
+
+# Временные файлы
+tmp/
+temp/
+*.tmp
+
+# Другое
 .DS_Store
 Thumbs.db
+.env
 
-# Logs
-*.log
-
-# Virtual environment
-venv/
-
-# Jupyter
-.ipynb_checkpoints
-
-# Coverage
-.coverage
-htmlcov/
-
-# Distribution / packaging
-dist/
-build/
-*.egg-info/
+# Бэкапы и временные файлы
+*backup*
+*_backup_*
+backup*/
+*.backup
+test_*.py
+update_*.py
