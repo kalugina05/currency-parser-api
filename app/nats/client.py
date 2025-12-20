@@ -25,33 +25,20 @@ class NatsClient:
     async def subscribe_to_channels(self):
         try:
             sub = await self.nc.subscribe(
-                "currency.external.updates",
-                cb=self.handle_external_message
-            )
-            self.subscriptions.append(sub)
-            
-            sub = await self.nc.subscribe(
-                "currency.commands", 
-                cb=self.handle_command_message
+                "currency.updates", 
+                cb=self.handle_message
             )
             self.subscriptions.append(sub)
             
         except Exception as e:
             logger.error(f"NATS ошибка подписки: {e}")
             
-    async def handle_external_message(self, msg):
+    async def handle_message(self, msg):
         try:
             data = json.loads(msg.data.decode())
-            logger.info(f"NATS сообщение: {data}")
+            print(f"NATS команда: {data}")
         except Exception as e:
-            logger.error(f"NATS ошибка обработки: {e}")
-            
-    async def handle_command_message(self, msg):
-        try:
-            data = json.loads(msg.data.decode())
-            logger.info(f"NATS команда: {data}")
-        except Exception as e:
-            logger.error(f"NATS ошибка команды: {e}")
+            print(f"NATS ошибка команды: {e}")
             
     async def publish(self, subject: str, payload: Dict[str, Any]):
         try:

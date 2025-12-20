@@ -47,13 +47,6 @@ async def shutdown():
     except Exception as e:
         logger.error(f"Ошибка завершения: {e}")
 
-@app.get("/")
-async def root():
-    return {
-        "message": "Currency Parser API",
-        "docs": "/docs",
-        "websocket": "/ws/currencies"
-    }
 
 @app.get("/api/v1/currencies")
 async def get_currencies(db: AsyncSession = Depends(get_db)):
@@ -248,18 +241,6 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.error(f"WebSocket ошибка: {e}")
     finally:
         manager.disconnect(websocket)
-
-@app.get("/api/v1/system/status")
-async def system_status():
-    return {
-        "status": "running",
-        "timestamp": datetime.now().isoformat(),
-        "components": {
-            "nats": {"connected": nats_client.is_connected},
-            "websocket": {"active_connections": len(manager.active_connections)},
-            "background_tasks": {"scheduler_running": scheduler.running}
-        }
-    }
 
 if __name__ == "__main__":
     import uvicorn
